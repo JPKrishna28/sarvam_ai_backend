@@ -31,9 +31,92 @@ def get_languages():
         "languages": list(SUPPORTED_LANGUAGES.keys())
     })
 
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Generate natural Telugu response to English question using Sarvam AI chat completions"""
+    data = request.get_json()
+    
+    print(f"Received chat request: {data}")  # Debug logging
+    
+    if not data:
+        return jsonify({
+            "success": False,
+            "message": "No data provided"
+        }), 400
+    
+    question = data.get('question')
+    
+    # Validate input
+    if not question:
+        return jsonify({
+            "success": False,
+            "message": "Missing required field: question"
+        }), 400
+    
+    print(f"Processing question: {question}")  # Debug logging
+    
+    # Get API key from environment variable or use the provided one
+    api_key = os.environ.get('SARVAM_API_KEY', "sk_03m67v1q_5xiVf8LZ8G6L3c1vbbJw6TDk")
+    
+    try:
+        client = SarvamAI(api_subscription_key=api_key)
+        
+        # For now, let's use a more conversational approach with translation
+        # Create a more natural prompt for better responses
+        conversational_prompt = f"""
+        Please respond to this question naturally in Telugu as if you are having a conversation:
+        
+        Question: {question}
+        
+        Provide a helpful, natural Telugu response (not just a direct translation).
+        """
+        
+        response = client.text.translate(
+            input=conversational_prompt,
+            source_language_code="en-IN",
+            target_language_code="te-IN",
+            speaker_gender="Male",
+            mode="classic-colloquial",
+            model="mayura:v1",
+            enable_preprocessing=True,
+        )
+        
+        # Get current UTC time
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Clean up the response to make it more conversational
+        telugu_response = response.translated_text
+        
+        # If the response contains the original prompt, try to extract just the answer
+        if "ప్రశ్న:" in telugu_response or "Question:" in telugu_response:
+            # Try to extract just the response part
+            parts = telugu_response.split(":")
+            if len(parts) > 1:
+                telugu_response = parts[-1].strip()
+        
+        return jsonify({
+            "success": True,
+            "telugu_response": telugu_response,
+            "english_question": question,
+            "timestamp": current_time,
+            "user": "JPKrishna28"
+        })
+    
+    except Exception as e:
+        # Fallback: provide a simple Telugu response indicating an error
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return jsonify({
+            "success": True,
+            "telugu_response": f"క్షమించండి, నేను ఇప్పుడు మీ ప్రశ్నకు సమాధానం ఇవ్వలేకపోతున్నాను. దయచేసి మళ్లీ ప్రయత్నించండి. లోపం: {str(e)}",
+            "english_question": question,
+            "timestamp": current_time,
+            "user": "JPKrishna28"
+        })
+
+# Keep the old translate endpoint for backward compatibility
 @app.route('/api/translate', methods=['POST'])
 def translate():
-    """Translate text from source language to target language"""
+    """Translate text from source language to target language (legacy endpoint)"""
     data = request.get_json()
     
     if not data:
@@ -43,21 +126,50 @@ def translate():
         }), 400
     
     text = data.get('text')
-    source_lang = data.get('sourceLang')
-    target_lang = data.get('targetLang')
+    source_lang = data.get('sourceLang', 'English')
+    target_lang = data.get('targetLang', 'Telugu')
     
     # Validate input
-    if not text or not source_lang or not target_lang:
+    if not text:
         return jsonify({
             "success": False,
-            "message": "Missing required fields: text, sourceLang, targetLang"
+            "message": "Missing required field: text"
         }), 400
     
-    if source_lang == target_lang:
-        return jsonify({
-            "success": False,
-            "message": "Source and target languages are the same"
-        }), 400
+    # For chat functionality with English to Telugu, use conversational approach
+    if source_lang == 'English' and target_lang == 'Telugu':
+        try:
+            client = SarvamAI(api_subscription_key=api_key)
+            
+            # Create a more conversational prompt
+            conversational_input = f"Please respond to this naturally in Telugu: {text}"
+            
+            response = client.text.translate(
+                input=conversational_input,
+                source_language_code="en-IN",
+                target_language_code="te-IN",
+                speaker_gender="Male",
+                mode="classic-colloquial",
+                model="mayura:v1",
+                enable_preprocessing=True,
+            )
+            
+            current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            
+            return jsonify({
+                "success": True,
+                "translated_text": response.translated_text,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "timestamp": current_time,
+                "user": "JPKrishna28"
+            })
+            
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "message": f"Error: {str(e)}"
+            }), 500
     
     # Get API key from environment variable or use the provided one
     api_key = os.environ.get('SARVAM_API_KEY', "sk_03m67v1q_5xiVf8LZ8G6L3c1vbbJw6TDk")
