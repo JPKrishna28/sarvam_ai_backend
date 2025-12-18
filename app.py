@@ -23,6 +23,9 @@ SUPPORTED_LANGUAGES = {
     "Punjabi": "pa-IN"
 }
 
+# Store conversation history for better context (in production, use a database)
+conversation_history = {}
+
 @app.route('/api/languages', methods=['GET'])
 def get_languages():
     """Return the list of supported languages"""
@@ -33,7 +36,7 @@ def get_languages():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Generate natural Telugu response to English question using Sarvam AI chat completions"""
+    """Generate natural Telugu response to English question using Sarvam AI Chat Completions"""
     data = request.get_json()
     
     print(f"Received chat request: {data}")  # Debug logging
@@ -45,6 +48,7 @@ def chat():
         }), 400
     
     question = data.get('question')
+    session_id = data.get('session_id', 'default')
     
     # Validate input
     if not question:
@@ -61,57 +65,84 @@ def chat():
     try:
         client = SarvamAI(api_subscription_key=api_key)
         
-        # For now, let's use a more conversational approach with translation
-        # Create a more natural prompt for better responses
-        conversational_prompt = f"""
-        Please respond to this question naturally in Telugu as if you are having a conversation:
+        # Build message history for conversational context
+        messages = []
         
-        Question: {question}
+        # Add system instruction
+        messages.append({
+            "role": "system",
+            "content": "You are a helpful Telugu AI assistant. Always respond in Telugu (తెలుగు). Be friendly, helpful, and natural. Use colloquial Telugu when appropriate. Provide direct answers without unnecessary formalities."
+        })
         
-        Provide a helpful, natural Telugu response (not just a direct translation).
-        """
+        # Add conversation history if available
+        if session_id in conversation_history:
+            recent_exchanges = conversation_history[session_id][-6:]  # Last 3 exchanges for context
+            for exchange in recent_exchanges:
+                messages.append({
+                    "role": "user",
+                    "content": exchange['user_question']
+                })
+                messages.append({
+                    "role": "assistant",
+                    "content": exchange['assistant_response']
+                })
         
-        response = client.text.translate(
-            input=conversational_prompt,
-            source_language_code="en-IN",
-            target_language_code="te-IN",
-            speaker_gender="Male",
-            mode="classic-colloquial",
-            model="mayura:v1",
-            enable_preprocessing=True,
+        # Add current user message
+        messages.append({
+            "role": "user",
+            "content": question
+        })
+        
+        # Call Sarvam AI Chat Completions API
+        response = client.chat.completions(
+            messages=messages
         )
         
         # Get current UTC time
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         
-        # Clean up the response to make it more conversational
-        telugu_response = response.translated_text
+        # Extract the response
+        telugu_response = response.choices[0].message.content.strip()
         
-        # If the response contains the original prompt, try to extract just the answer
-        if "ప్రశ్న:" in telugu_response or "Question:" in telugu_response:
-            # Try to extract just the response part
-            parts = telugu_response.split(":")
-            if len(parts) > 1:
-                telugu_response = parts[-1].strip()
+        # Store in conversation history
+        if session_id not in conversation_history:
+            conversation_history[session_id] = []
+        
+        conversation_history[session_id].append({
+            "user_question": question,
+            "assistant_response": telugu_response,
+            "timestamp": current_time
+        })
+        
+        # Keep history manageable (last 20 exchanges)
+        if len(conversation_history[session_id]) > 20:
+            conversation_history[session_id] = conversation_history[session_id][-20:]
+        
+        print(f"Generated response: {telugu_response}")  # Debug logging
         
         return jsonify({
             "success": True,
             "telugu_response": telugu_response,
             "english_question": question,
             "timestamp": current_time,
+            "session_id": session_id,
             "user": "JPKrishna28"
         })
     
     except Exception as e:
-        # Fallback: provide a simple Telugu response indicating an error
+        print(f"Error in chat endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         return jsonify({
-            "success": True,
-            "telugu_response": f"క్షమించండి, నేను ఇప్పుడు మీ ప్రశ్నకు సమాధానం ఇవ్వలేకపోతున్నాను. దయచేసి మళ్లీ ప్రయత్నించండి. లోపం: {str(e)}",
+            "success": False,
+            "telugu_response": f"క్షమించండి, ఇప్పుడు సమాధానం ఇవ్వలేకపోతున్నాను. దయచేసి మళ్లీ ప్రయత్నించండి.",
             "english_question": question,
             "timestamp": current_time,
-            "user": "JPKrishna28"
-        })
+            "user": "JPKrishna28",
+            "error": str(e)
+        }), 500
 
 # Keep the old translate endpoint for backward compatibility
 @app.route('/api/translate', methods=['POST'])
