@@ -1,6 +1,6 @@
-Flask
-Flask-Cors
-sarvamai
-python-dotenv
-openai-whisper @ git+https://github.com/openai/whisper.git@25639fc17ddc013d56c594bfbf7644f2185fad84
-gunicorn
+Flask==2.3.3
+Flask-Cors==4.0.0
+sarvamai==0.1.2
+python-dotenv==1.0.0
+openai-whisper==20231117
+gunicorn==21.2.0
